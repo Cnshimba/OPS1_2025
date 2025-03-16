@@ -1,6 +1,7 @@
 # Practical Guide: Visualizing Memory Stages in the Compilation Process
 
-This guide provides practical examples to visualize and understand the different stages in the compilation process as shown in the diagram.
+This guide provides practical examples to visualize and understand the different stages in the compilation process as shown by the diagram on page 353 of
+Operting Systems Principles textbook.
 
 ## 1. Setup for the Demonstration
 
