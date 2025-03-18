@@ -1,26 +1,26 @@
 # Practical Guide: Visualizing Memory Stages in the Compilation Process
 
 This guide provides practical examples to visualize and understand the different stages in the compilation process as shown by the diagram on page 353 of
-Operting Systems Principles textbook.
+Operating Systems Principles textbook.
 
 ## 1. Setup for the Demonstration
 
 Let's create a complete example that will allow us to observe each stage of the process:
 
-### 1.1 Create a Simple Dynamic Library
+### 1.1 Create a Simple Math Library
 
-First, let's create a dynamic library that we'll use in our demonstration:
+First, let's create a math library that we'll use in our demonstration:
 
 ```c
 // mathlib.c
 #include <stdio.h>
 
 void print_info() {
-    printf("This is from the dynamic library!\n");
+    printf("This is from the math library!\n");
 }
 
-int calculate(int a, int b) {
-    return a * b + a;
+int add(int a, int b) {
+    return a + b;
 }
 ```
 
@@ -32,14 +32,15 @@ int calculate(int a, int b) {
 #define MATHLIB_H
 
 void print_info();
-int calculate(int a, int b);
+int add(int a, int b);
 
 #endif
 ```
 
 ### 1.3 Create a Main Program
 
-```c
+```
+//This program helps you to see how different section are saved in the memory
 // main.c
 #include <stdio.h>
 #include "mathlib.h"
@@ -58,7 +59,7 @@ int main() {
     printf("Stack variable address: %p\n", &stack_var);
     printf("Heap variable address: %p\n", heap_var);
     
-    // Call function from our dynamic library
+    // Call function from our library
     print_info();
     printf("Calculation result: %d\n", calculate(5, 7));
     
@@ -70,92 +71,164 @@ int main() {
 }
 ```
 
-## 2. Observing the Compilation Process
+## 2. Visualizing Static Libraries
 
-### 2.1 Source Program Stage
+Let's examine how static libraries are compiled, linked, and loaded into memory.
 
-At this stage, we have our source files: `mathlib.c`, `mathlib.h`, and `main.c`.
+### 2.1 Creating a Static Library
 
-**Command to view source:**
+Using our math library, let's compile it as a static library:
+
 ```bash
-cat main.c
-cat mathlib.c
+# Compile the library source to an object file
+gcc -c mathlib.c -o mathlib.o
+
+# Create a static library archive
+ar rcs libmathlib.a mathlib.o
 ```
 
-### 2.2 Compilation Stage
+**What to observe:**
+- The `.a` extension indicates a static library (archive)
+- The `ar` command is used to create and manipulate static libraries
+- Options `rcs` mean: replace existing files, create archive if needed, and create an index
 
-Let's compile our source files into object files:
+### 2.2 Examining the Static Library
 
 **Commands:**
+```bash
+# List the contents of the library
+ar t libmathlib.a
+
+# View detailed information
+ar tv libmathlib.a
+
+# Extract symbols from the static library
+nm libmathlib.a
+```
+
+**Output example:**
+```
+mathlib.o:
+00000000 T calculate
+00000000 T print_info
+```
+
+### 2.3 Linking with the Static Library
+
+Now let's compile our main program with the static library:
+
+```bash
+# Compile the main program to an object file
+gcc -c main.c -o main.o
+
+# Link with the static library
+gcc main.o -L. -lmathlib -static -o program_static
+```
+
+The `-static` flag forces the linker to use static libraries.
+
+### 2.4 Examining the Static Executable
+
+**Commands:**
+```bash
+# Check file type
+file program_static
+
+# View dependencies (should show "not a dynamic executable")
+ldd program_static
+
+# View section sizes
+size program_static
+
+# View the program's headers
+readelf -h program_static
+
+# View the program's section headers
+readelf -S program_static
+```
+
+**What to observe:**
+- The executable is standalone with no external dependencies
+- The `.text` section is larger as it includes all library code
+- All code is contained in the executable itself
+
+### 2.5 Memory Layout with Static Libraries
+
+Run the static executable and examine its memory layout:
+
+```bash
+# Run the static program
+./program_static
+
+# In another terminal, find the process ID
+ps aux | grep program_static
+
+# View memory mappings
+cat /proc/PID/maps
+```
+
+**Key characteristics:**
+1. **No library mappings**: No separate memory mappings for libraries
+2. **Larger text segment**: The code from the library is included directly in the program's text segment
+3. **No shared memory**: Each process running the static executable has its complete own copy of all code
+
+## 3. Visualizing Dynamic Libraries
+
+Now let's explore dynamic libraries and compare their behavior to static libraries.
+
+### 3.1 Creating a Dynamic Library
+
+Let's use our same math library but compile it as a dynamic library:
+
 ```bash
 # Compile the library with position-independent code
 gcc -c -fPIC mathlib.c -o mathlib.o
 
-# Compile the main program
-gcc -c main.c -o main.o
-```
-
-### 2.3 Object File Stage
-
-Now we have object files: `mathlib.o` and `main.o`.
-
-**Commands to examine object files:**
-```bash
-# View symbols in the object file
-nm main.o
-
-# Disassemble the object file to see the compiled code
-objdump -d main.o
-
-# View the relocations (unresolved references)
-objdump -r main.o
+# Create the shared library
+gcc -shared mathlib.o -o libmathlib.so
 ```
 
 **What to observe:**
-- Unresolved references to external functions (like `printf` and `calculate`)
-- The symbol table with our functions and variables
-- Machine code for our functions
+- The `.so` extension indicates a shared object (dynamic library)
+- The `-fPIC` flag creates Position Independent Code necessary for shared libraries
+- The `-shared` flag tells the compiler to create a shared library
 
-### 2.4 Linker Stage
+### 3.2 Linking with the Dynamic Library
 
-Now let's create the dynamic library and link the main program:
+Let's compile our main program with the dynamic library:
+
+```bash
+# Compile the main program to an object file
+gcc -c main.c -o main.o
+
+# Link with the dynamic library
+gcc main.o -L. -lmathlib -o program_dynamic
+```
+
+### 3.3 Comparing Static vs. Dynamic Executables
 
 **Commands:**
 ```bash
-# Create the shared library
-gcc -shared mathlib.o -o libmathlib.so
+# Compare file sizes
+ls -lh program_static program_dynamic
 
-# Link the main program with the library
-gcc main.o -L. -lmathlib -o program
-```
+# Check dependencies
+ldd program_static
+ldd program_dynamic
 
-### 2.5 Executable File Stage
-
-We now have an executable file `program` and a shared library `libmathlib.so`.
-
-**Commands to examine the executable:**
-```bash
-# Check file type
-file program
-
-# View dynamic dependencies
-ldd program
-
-# View the program's headers
-readelf -h program
-
-# View the program's section headers
-readelf -S program
+# Compare section sizes
+size program_static
+size program_dynamic
 ```
 
 **What to observe:**
-- The executable format (ELF on Linux)
-- Dependencies on the dynamic library `libmathlib.so`
-- Different sections (.text, .data, .bss, etc.)
+- The dynamic executable is significantly smaller as it doesn't contain library code
+- Running `ldd` on the dynamic executable shows dependencies on `libmathlib.so`
+- The `.text` section of the dynamic executable is smaller
 
-### 2.6 Loader Stage
+### 3.4 Loader Stage for Dynamic Libraries
 
-When we run the program, the loader maps it into memory.
+When we run the program, the loader maps the dynamic library into memory:
 
 **Commands:**
 ```bash
@@ -163,19 +236,19 @@ When we run the program, the loader maps it into memory.
 export LD_LIBRARY_PATH=.:$LD_LIBRARY_PATH
 
 # Run the program (it will pause for us to examine it)
-./program
+./program_dynamic
 ```
 
-### 2.7 Program in Memory Stage
+### 3.5 Memory Layout with Dynamic Libraries
 
 While the program is running (paused), open another terminal to examine its memory layout:
 
 **Commands (in another terminal):**
 ```bash
 # Find the process ID
-ps aux | grep program
+ps aux | grep program_dynamic
 
-# View memory mappings (replace PID with the actual process ID)
+# View memory mappings
 cat /proc/PID/maps
 
 # View detailed memory map
@@ -186,42 +259,21 @@ lsof -p PID | grep .so
 ```
 
 **What to observe:**
-- Text segment (where the code is loaded)
-- Data segment (for initialized global/static variables)
-- BSS segment (for uninitialized global/static variables)
-- Heap segment (for dynamically allocated memory)
-- Stack segment (for local variables and function calls)
-- Memory-mapped regions for the shared library `libmathlib.so`
+- Separate memory-mapped regions for the shared library `libmathlib.so`
+- Text, data, and BSS segments for both the program and the library
 
-## 3. Visualizing Dynamic Linking
-
-### 3.1 Examine the Library Dependencies
-
-**Command:**
-```bash
-ldd program
-```
-
-**Output example:**
-```
-linux-vdso.so.1 =>  (0x00007ffd8a1a0000)
-libmathlib.so => ./libmathlib.so (0x00007f7a5a7a0000)
-libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f7a5a400000)
-/lib64/ld-linux-x86-64.so.2 (0x00007f7a5a9a0000)
-```
-
-### 3.2 Observe Memory Sharing
+### 3.6 Observing Memory Sharing with Dynamic Libraries
 
 Run multiple instances of the program and observe how they share the same copy of the library:
 
 **Commands:**
 ```bash
 # Run multiple instances in the background
-./program &
-./program &
+./program_dynamic &
+./program_dynamic &
 
 # View shared memory
-pmap $(pgrep program) | grep libmathlib
+pmap $(pgrep program_dynamic) | grep libmathlib
 ```
 
 **What to observe:**
@@ -304,7 +356,117 @@ ps aux | grep dynamic_loader
 cat /proc/PID/maps | grep mathlib
 ```
 
-## 5. Tools Summary for Memory Stage Visualization
+## 5. Comparison of Static and Dynamic Libraries
+
+### 5.1 Visual Comparison: Memory Usage
+
+#### Static Linking Memory Usage (Two processes):
+```
+Process A Memory:       Process B Memory:
++----------------+     +----------------+
+| Stack          |     | Stack          |
++----------------+     +----------------+
+| Heap           |     | Heap           |
++----------------+     +----------------+
+| Data           |     | Data           |
++----------------+     +----------------+
+| Text           |     | Text           |
+| (includes all  |     | (includes all  |
+|  library code) |     |  library code) |
++----------------+     +----------------+
+
+Total: 2 copies of library code in memory
+```
+
+#### Dynamic Linking Memory Usage (Two processes):
+```
+Process A Memory:       Process B Memory:
++----------------+     +----------------+
+| Stack          |     | Stack          |
++----------------+     +----------------+
+| Heap           |     | Heap           |
++----------------+     +----------------+
+| Library Data   |     | Library Data   |
++----------------+     +----------------+
+| Data           |     | Data           |
++----------------+     +----------------+
+| Text           |     | Text           |
++----------------+     +----------------+
+        ↓                     ↓
+        |                     |
+        +---------------------+
+              ↓
+        +----------------+
+        | Shared Library |
+        | Text (Code)    |
+        +----------------+
+
+Total: 1 copy of library code shared in memory
+```
+
+### 5.2 Comprehensive Comparison of Static vs. Dynamic Libraries
+
+| Aspect | Static Libraries | Dynamic Libraries |
+|--------|------------------|-------------------|
+| **File Extension** | `.a` (archive) | `.so` (shared object) |
+| **Executable Size** | Larger (contains all library code) | Smaller (references external libraries) |
+| **Memory Usage** | Higher (each process has its own copy) | Lower (code is shared between processes) |
+| **Load Time** | Faster (no runtime linking) | Slower (requires runtime linking) |
+| **Deployment** | Simpler (single executable file) | More complex (executable + library files) |
+| **Updates** | Requires recompilation of all applications | Only library needs to be updated |
+| **Version Control** | No version conflicts (code is embedded) | Potential version conflicts ("DLL hell") |
+| **Runtime Overhead** | None | Small overhead from indirection |
+| **Flexibility** | Limited (fixed at compile time) | Higher (can load/unload at runtime) |
+| **Disk Space** | Higher (duplicate code in each executable) | Lower (single copy of library on disk) |
+
+### 5.3 Advantages of Static Libraries
+
+1. **Self-contained executables**: No external dependencies make deployment simpler
+2. **Startup performance**: No runtime linking overhead means faster program startup
+3. **Version consistency**: No risk of incompatible library versions being loaded
+4. **Optimization opportunities**: Compiler can optimize across library boundaries
+5. **Predictable behavior**: No risk of missing libraries at runtime
+
+### 5.4 Disadvantages of Static Libraries
+
+1. **Larger executables**: All library code is included, even unused functions
+2. **Memory inefficiency**: No sharing of code between processes
+3. **Updates require recompilation**: Every program using the library must be recompiled
+4. **Limited flexibility**: Cannot change behavior at runtime or load code on demand
+
+### 5.5 Advantages of Dynamic Libraries
+
+1. **Smaller executables**: Only references to libraries are included
+2. **Memory efficiency**: Code is shared between multiple processes
+3. **Easy updates**: Library can be updated without changing applications
+4. **Runtime flexibility**: Libraries can be loaded/unloaded on demand
+5. **Plugin architecture**: Enables extensible applications via plugins
+
+### 5.6 Disadvantages of Dynamic Libraries
+
+1. **Dependency management**: Applications may fail if libraries are missing
+2. **Version conflicts**: Different applications may require different versions
+3. **Runtime overhead**: Small performance cost for symbol resolution
+4. **Security concerns**: Potential for library hijacking attacks
+5. **Complex deployment**: All required libraries must be distributed
+
+### 5.7 When to Use Each Type
+
+**Use Static Libraries When:**
+- Creating standalone applications that should run anywhere
+- Building applications where startup time is critical
+- Working with libraries that change rarely
+- Creating embedded systems with limited resources
+- Security is a primary concern
+
+**Use Dynamic Libraries When:**
+- Creating applications that will share code with other applications
+- Building systems that need to be updated frequently
+- Developing extensible applications with plugin support
+- Memory usage across multiple applications is a concern
+- Runtime flexibility is required
+
+## 6. Tools Summary for Memory Stage Visualization
 
 | Tool | Purpose | Example |
 |------|---------|---------|
@@ -319,9 +481,9 @@ cat /proc/PID/maps | grep mathlib
 | `size` | View section sizes | `size program` |
 | `strace` | Trace system calls (including library loading) | `strace ./program` |
 
-## 6. Understanding Memory Layouts
+## 7. Understanding Memory Layouts
 
-### 6.1 Typical Memory Layout of a Running Process
+### 7.1 Typical Memory Layout of a Running Process
 
 ```
 High addresses:    +----------------+
@@ -342,7 +504,7 @@ Low addresses:     |    Text        | ← Program code
                   +----------------+
 ```
 
-### 6.2 Dynamically Linked Libraries in Memory
+### 7.2 Dynamically Linked Libraries in Memory
 
 When a program uses a dynamically linked library:
 
@@ -352,3 +514,15 @@ When a program uses a dynamically linked library:
 4. The library's code section is shared among all processes
 
 This is why dynamic linking saves memory: the code is loaded once but can be used by many programs simultaneously.
+
+## 8. Conclusion
+
+Understanding the differences between static and dynamic libraries is crucial for optimizing application performance, memory usage, and maintainability. Each approach offers distinct advantages that make them suitable for different scenarios.
+
+Static libraries provide simplicity, determinism, and performance at the cost of flexibility and resource efficiency. They are ideal for standalone applications, security-critical systems, and environments where consistency is paramount.
+
+Dynamic libraries offer memory efficiency, ease of updates, and runtime flexibility at the cost of more complex deployment and potential version conflicts. They excel in modern, modular software ecosystems where code reuse and flexibility are prioritized.
+
+The compilation and linking process transforms source code into executable programs through several stages, each with distinct characteristics. By understanding these stages and the memory layouts they produce, developers can make informed decisions about library usage, optimize resource utilization, and troubleshoot issues more effectively.
+
+In practice, many systems use a combination of both approaches, statically linking critical components while dynamically linking others to balance the tradeoffs according to specific application requirements.
